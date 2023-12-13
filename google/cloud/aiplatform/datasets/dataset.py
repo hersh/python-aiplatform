@@ -27,6 +27,7 @@ from google.cloud.aiplatform import utils
 from google.cloud.aiplatform.compat.services import dataset_service_client
 from google.cloud.aiplatform.compat.types import (
     dataset as gca_dataset,
+    dataset_service as gca_dataset_service,
     encryption_spec as gca_encryption_spec,
     io as gca_io,
 )
@@ -561,6 +562,53 @@ class _Dataset(base.VertexAiResourceNounWithFutureManager):
         )
         return self
 
+    def _get_completed_export_data_operation(
+        self,
+        output_dir: str,
+        export_use: Optional[gca_dataset.ExportDataConfig.ExportUse] = None,
+        annotation_filter: Optional[str] = None,
+        saved_query_id: Optional[str] = None,
+        annotation_schema_uri: Optional[str] = None,
+        split: Optional[
+            Union[gca_dataset.ExportFilterSplit, gca_dataset.ExportFractionSplit]
+        ] = None,
+    ) -> gca_dataset_service.ExportDataResponse:
+        self.wait()
+
+        # TODO(b/171311614): Add support for BigQuery export path
+        export_data_config = gca_dataset.ExportDataConfig(
+            gcs_destination=gca_io.GcsDestination(output_uri_prefix=output_dir)
+        )
+        if export_use is not None:
+            export_data_config.export_use = export_use
+        if annotation_filter is not None:
+            export_data_config.annotation_filter = annotation_filter
+        if saved_query_id is not None:
+            export_data_config.saved_query_id = saved_query_id
+        if annotation_schema_uri is not None:
+            export_data_config.annotation_schema_uri = annotation_schema_uri
+        if split is not None:
+            if isinstance(split, gca_dataset.ExportFilterSplit):
+                export_data_config.filter_split = split
+            elif isinstance(split, gca_dataset.ExportFractionSplit):
+                export_data_config.fraction_split = split
+
+        _LOGGER.log_action_start_against_resource("Exporting", "data", self)
+
+        export_lro = self.api_client.export_data(
+            name=self.resource_name, export_config=export_data_config
+        )
+
+        _LOGGER.log_action_started_against_resource_with_lro(
+            "Export", "data", self.__class__, export_lro
+        )
+
+        export_data_response = export_lro.result()
+
+        _LOGGER.log_action_completed_against_resource("data", "export", self)
+
+        return export_data_response
+
     # TODO(b/174751568) add optional sync support
     def export_data(self, output_dir: str) -> Sequence[str]:
         """Exports data to output dir to GCS.
@@ -585,28 +633,93 @@ class _Dataset(base.VertexAiResourceNounWithFutureManager):
             exported_files (Sequence[str]):
                 All of the files that are exported in this export operation.
         """
-        self.wait()
+        return self._get_completed_export_data_operation(output_dir).exported_files
 
-        # TODO(b/171311614): Add support for BigQuery export path
-        export_data_config = gca_dataset.ExportDataConfig(
-            gcs_destination=gca_io.GcsDestination(output_uri_prefix=output_dir)
+    def export_data_for_custom_training(
+        self,
+        output_dir: str,
+        annotation_filter: Optional[str] = None,
+        saved_query_id: Optional[str] = None,
+        annotation_schema_uri: Optional[str] = None,
+        split: Optional[
+            Union[gca_dataset.ExportFilterSplit, gca_dataset.ExportFractionSplit]
+        ] = None,
+    ) -> gca_dataset_service.ExportDataResponse:
+        """Exports data to output dir to GCS for custom training use case.
+
+        Args:
+            output_dir (str):
+                Required. The Google Cloud Storage location where the output is to
+                be written to. In the given directory a new directory will be
+                created with name:
+                ``export-data-<dataset-display-name>-<timestamp-of-export-call>``
+                where timestamp is in YYYYMMDDHHMMSS format. All export
+                output will be written into that directory. Inside that
+                directory, annotations with the same schema will be grouped
+                into sub directories which are named with the corresponding
+                annotations' schema title. Inside these sub directories, a
+                schema.yaml will be created to describe the output format.
+
+                If the uri doesn't end with '/', a '/' will be automatically
+                appended. The directory is created if it doesn't exist.
+            annotation_filter (str):
+                Optional. An expression for filtering what part of the Dataset
+                is to be exported.
+                Only Annotations that match this filter will be exported.
+                The filter syntax is the same as in
+                [ListAnnotations][DatasetService.ListAnnotations].
+            saved_query_id (str):
+                Optional. The ID of a SavedQuery (annotation set) under this
+                Dataset used for filtering Annotations for training.
+
+                Only used for custom training data export use cases.
+                Only applicable to Datasets that have SavedQueries.
+
+                Only Annotations that are associated with this SavedQuery are
+                used in respectively training. When used in conjunction with
+                annotations_filter, the Annotations used for training are
+                filtered by both saved_query_id and annotations_filter.
+
+                Only one of saved_query_id and annotation_schema_uri should be
+                specified as both of them represent the same thing: problem
+                type.
+            annotation_schema_uri (str):
+                Optional. The Cloud Storage URI that points to a YAML file
+                describing the annotation schema. The schema is defined as an
+                OpenAPI 3.0.2 Schema Object. The schema files that can be used
+                here are found in
+                gs://google-cloud-aiplatform/schema/dataset/annotation/, note
+                that the chosen schema must be consistent with
+                metadata_schema_uri of this Dataset.
+
+                Only used for custom training data export use cases.
+                Only applicable if this Dataset that have DataItems and
+                Annotations.
+
+                Only Annotations that both match this schema and belong to
+                DataItems not ignored by the split method are used in
+                respectively training, validation or test role, depending on the
+                role of the DataItem they are on.
+
+                When used in conjunction with annotations_filter, the
+                Annotations used for training are filtered by both
+                annotations_filter and annotation_schema_uri.
+            split (Union[ExportFilterSplit, ExportFractionSplit]):
+                The instructions how the export data should be split between the
+                training, validation and test sets.
+
+        Returns:
+            export_data_response (ExportDataResponse):
+                Response message for DatasetService.ExportData.
+        """
+        return self._get_completed_export_data_operation(
+            output_dir,
+            gca_dataset.ExportDataConfig.ExportUse.CUSTOM_CODE_TRAINING,
+            annotation_filter,
+            saved_query_id,
+            annotation_schema_uri,
+            split,
         )
-
-        _LOGGER.log_action_start_against_resource("Exporting", "data", self)
-
-        export_lro = self.api_client.export_data(
-            name=self.resource_name, export_config=export_data_config
-        )
-
-        _LOGGER.log_action_started_against_resource_with_lro(
-            "Export", "data", self.__class__, export_lro
-        )
-
-        export_data_response = export_lro.result()
-
-        _LOGGER.log_action_completed_against_resource("data", "export", self)
-
-        return export_data_response.exported_files
 
     def update(
         self,
