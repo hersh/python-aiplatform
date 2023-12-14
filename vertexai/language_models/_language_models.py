@@ -182,6 +182,7 @@ class _TunableModelMixin(_LanguageModel):
         tuning_evaluation_spec: Optional["TuningEvaluationSpec"] = None,
         default_context: Optional[str] = None,
         accelerator_type: Optional[_ACCELERATOR_TYPE_TYPE] = None,
+        max_context_length: Optional[str] = None,
     ) -> "_LanguageModelTuningJob":
         """Tunes a model based on training data.
 
@@ -207,6 +208,8 @@ class _TunableModelMixin(_LanguageModel):
             tuning_evaluation_spec: Specification for the model evaluation during tuning.
             default_context: The context to use for all training samples by default.
             accelerator_type: Type of accelerator to use. Can be "TPU" or "GPU".
+            max_context_length: The max context length used for tuning.
+                Can be either '8k' or '32k'
 
         Returns:
             A `LanguageModelTuningJob` object that represents the tuning job.
@@ -281,6 +284,9 @@ class _TunableModelMixin(_LanguageModel):
                     f" Supported types: {_ACCELERATOR_TYPES}"
                 )
             tuning_parameters["accelerator_type"] = accelerator_type
+
+        if max_context_length:
+            tuning_parameters["max_context_length"] = max_context_length
 
         return self._tune_model(
             training_data=training_data,
@@ -368,6 +374,7 @@ class _TunableTextModelMixin(_TunableModelMixin):
         model_display_name: Optional[str] = None,
         tuning_evaluation_spec: Optional["TuningEvaluationSpec"] = None,
         accelerator_type: Optional[_ACCELERATOR_TYPE_TYPE] = None,
+        max_context_length: Optional[str] = None,
     ) -> "_LanguageModelTuningJob":
         """Tunes a model based on training data.
 
@@ -389,6 +396,8 @@ class _TunableTextModelMixin(_TunableModelMixin):
             model_display_name: Custom display name for the tuned model.
             tuning_evaluation_spec: Specification for the model evaluation during tuning.
             accelerator_type: Type of accelerator to use. Can be "TPU" or "GPU".
+            max_context_length: The max context length used for tuning.
+                Can be either '8k' or '32k'
 
         Returns:
             A `LanguageModelTuningJob` object that represents the tuning job.
@@ -409,6 +418,7 @@ class _TunableTextModelMixin(_TunableModelMixin):
             model_display_name=model_display_name,
             tuning_evaluation_spec=tuning_evaluation_spec,
             accelerator_type=accelerator_type,
+            max_context_length=max_context_length,
         )
 
 
@@ -427,6 +437,7 @@ class _PreviewTunableTextModelMixin(_TunableModelMixin):
         model_display_name: Optional[str] = None,
         tuning_evaluation_spec: Optional["TuningEvaluationSpec"] = None,
         accelerator_type: Optional[_ACCELERATOR_TYPE_TYPE] = None,
+        max_context_length: Optional[str] = None,
     ) -> "_LanguageModelTuningJob":
         """Tunes a model based on training data.
 
@@ -455,6 +466,8 @@ class _PreviewTunableTextModelMixin(_TunableModelMixin):
             model_display_name: Custom display name for the tuned model.
             tuning_evaluation_spec: Specification for the model evaluation during tuning.
             accelerator_type: Type of accelerator to use. Can be "TPU" or "GPU".
+            max_context_length: The max context length used for tuning.
+                Can be either '8k' or '32k'
 
         Returns:
             A `LanguageModelTuningJob` object that represents the tuning job.
@@ -476,6 +489,7 @@ class _PreviewTunableTextModelMixin(_TunableModelMixin):
             model_display_name=model_display_name,
             tuning_evaluation_spec=tuning_evaluation_spec,
             accelerator_type=accelerator_type,
+            max_context_length=max_context_length,
         )
         tuned_model = job.get_tuned_model()
         self._endpoint = tuned_model._endpoint
