@@ -522,31 +522,38 @@ class MatchingEngineIndexEndpoint(base.VertexAiResourceNounWithFutureManager):
     def _instantiate_private_match_service_stub(
         self,
         deployed_index_id: str,
+        ip_address: Optional[str] = None,
     ) -> match_service_pb2_grpc.MatchServiceStub:
         """Helper method to instantiate private match service stub.
         Args:
             deployed_index_id (str):
-                Required. The user specified ID of the
-                DeployedIndex.
+                Required. The user specified ID of the DeployedIndex.
+            ip_address (str):
+                Optional. The ip address for private service connect, which the
+                forwarding rule makes use of.
         Returns:
             stub (match_service_pb2_grpc.MatchServiceStub):
                 Initialized match service stub.
         """
-        # Find the deployed index by id
-        deployed_indexes = [
-            deployed_index
-            for deployed_index in self.deployed_indexes
-            if deployed_index.id == deployed_index_id
-        ]
+        if not ip_address:
+            # For Private Service Access, find the deployed index by id. Else,
+            # for Private Service Connect, use user provided ip address.
+            deployed_indexes = [
+                deployed_index
+                for deployed_index in self.deployed_indexes
+                if deployed_index.id == deployed_index_id
+            ]
 
-        if not deployed_indexes:
-            raise RuntimeError(f"No deployed index with id '{deployed_index_id}' found")
+            if not deployed_indexes:
+                raise RuntimeError(
+                    f"No deployed index with id '{deployed_index_id}' found"
+                )
 
-        # Retrieve server ip from deployed index
-        server_ip = deployed_indexes[0].private_endpoints.match_grpc_address
+            # Retrieve server ip from deployed index
+            ip_address = deployed_indexes[0].private_endpoints.match_grpc_address
 
         # Set up channel and stub
-        channel = grpc.insecure_channel("{}:10000".format(server_ip))
+        channel = grpc.insecure_channel("{}:10000".format(ip_address))
         return match_service_pb2_grpc.MatchServiceStub(channel)
 
     @property
@@ -1263,6 +1270,7 @@ class MatchingEngineIndexEndpoint(base.VertexAiResourceNounWithFutureManager):
         *,
         deployed_index_id: str,
         ids: List[str] = [],
+        private_service_connect_ip_address: Optional[str] = None,
     ) -> List[gca_index_v1beta1.IndexDatapoint]:
         """Reads the datapoints/vectors of the given IDs on the specified
         deployed index which is deployed to public or private endpoint.
@@ -1280,13 +1288,19 @@ class MatchingEngineIndexEndpoint(base.VertexAiResourceNounWithFutureManager):
                 Required. The ID of the DeployedIndex to match the queries against.
             ids (List[str]):
                 Required. IDs of the datapoints to be searched for.
+            private_service_connect_ip_address (str):
+                Optional. The ip address created for private service connect to set up
+                forwarding rule with. For private service connect, this must be
+                set. For private service access, this should not be set.
         Returns:
             List[gca_index_v1beta1.IndexDatapoint] - A list of datapoints/vectors of the given IDs.
         """
         if not self._public_match_client:
             # Call private match service stub with BatchGetEmbeddings request
             embeddings = self._batch_get_embeddings(
-                deployed_index_id=deployed_index_id, ids=ids
+                deployed_index_id=deployed_index_id,
+                ids=ids,
+                private_service_connect_ip_address=private_service_connect_ip_address,
             )
 
             response = []
@@ -1334,6 +1348,7 @@ class MatchingEngineIndexEndpoint(base.VertexAiResourceNounWithFutureManager):
         *,
         deployed_index_id: str,
         ids: List[str] = [],
+        private_service_connect_ip_address: Optional[str] = None,
     ) -> List[match_service_pb2.Embedding]:
         """
         Reads the datapoints/vectors of the given IDs on the specified index
@@ -1344,11 +1359,16 @@ class MatchingEngineIndexEndpoint(base.VertexAiResourceNounWithFutureManager):
                 Required. The ID of the DeployedIndex to match the queries against.
             ids (List[str]):
                 Required. IDs of the datapoints to be searched for.
+            private_service_connect_ip_address (str):
+                Optional. The ip address created for private service connect to set up
+                forwarding rule with. For private service connect, this must be
+                set. For private service access, this should not be set.
         Returns:
             List[match_service_pb2.Embedding] - A list of datapoints/vectors of the given IDs.
         """
         stub = self._instantiate_private_match_service_stub(
-            deployed_index_id=deployed_index_id
+            deployed_index_id=deployed_index_id,
+            ip_address=private_service_connect_ip_address,
         )
 
         # Create the batch get embeddings request
@@ -1369,6 +1389,7 @@ class MatchingEngineIndexEndpoint(base.VertexAiResourceNounWithFutureManager):
         filter: Optional[List[Namespace]] = [],
         per_crowding_attribute_num_neighbors: Optional[int] = None,
         approx_num_neighbors: Optional[int] = None,
+        private_service_connect_ip_address: Optional[str] = None,
     ) -> List[List[MatchNeighbor]]:
         """Retrieves nearest neighbors for the given embedding queries on the specified deployed index.
 
@@ -1394,12 +1415,16 @@ class MatchingEngineIndexEndpoint(base.VertexAiResourceNounWithFutureManager):
             approx_num_neighbors (int):
                 The number of neighbors to find via approximate search before exact reordering is performed.
                 If not set, the default value from scam config is used; if set, this value must be > 0.
-
+            private_service_connect_ip_address (str):
+                Optional. The ip address created for private service connect to set up
+                forwarding rule with. For private service connect, this must be
+                set. For private service access, this should not be set.
         Returns:
             List[List[MatchNeighbor]] - A list of nearest neighbors for each query.
         """
         stub = self._instantiate_private_match_service_stub(
-            deployed_index_id=deployed_index_id
+            deployed_index_id=deployed_index_id,
+            ip_address=private_service_connect_ip_address,
         )
 
         # Create the batch match request
